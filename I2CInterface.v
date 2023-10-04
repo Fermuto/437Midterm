@@ -32,8 +32,6 @@ module I2CInterface(
                                       .FSM_Clk(FSM_Clk),
                                       .ILA_Clk(ILA_Clk) );
 
-    reg error_bit = 1'b1;
-
     // ****************************************************************************************************
     // Define Upper States
     localparam STATE_INIT  = 8'd0;
@@ -60,6 +58,7 @@ module I2CInterface(
     wire [7:0] WriteDataLocal;
 
     // Initialize some IO, States, Flags
+    reg error_bit = 1'b1;
     initial  begin
         SCL              = 1'b1;
         SDA              = 1'b1;
@@ -89,11 +88,13 @@ module I2CInterface(
     assign I2C_SCL_0 = SCL;
     assign I2C_SDA_0 = SDA;
 
+    // Clk assignments
     always @(*) begin
         FSM_Clk_reg = FSM_Clk;
         ILA_Clk_reg = ILA_Clk;
     end
 
+    // Assign ReadData and Telemetry (flags) outputs
     always @(posedge ILA_Clk) ReadData = {ReadOutput[3], ReadOutput[2], ReadOutput[1], ReadOutput[0]};
     assign Telemetry = {11'd0,
                         SubAddressDone,
@@ -104,10 +105,12 @@ module I2CInterface(
                         ReadByteCounter,
                         WriteDataLocal};
 
+    // ****************************************************************************************************
+    // Interface FSM
     always @(posedge FSM_Clk) begin
         case (UpperState)
             STATE_INIT : begin
-
+                // Clear flags, safety coverage
                 SubAddressDone   <= 1'b0;
                 SlaveAddressDone <= 1'b0;
                 ReadDone         <= 1'b0;
@@ -116,9 +119,9 @@ module I2CInterface(
 
                 if (PCControl == 1'b1) begin
                     LowerState      <= 8'd0;
-                    ReadByteCounter <= BytesToRead;
-                    WriteDataLocal  <= WriteData;
-                    ReadOutput[0]   <= 8'd0;
+                    ReadByteCounter <= BytesToRead; // Assign new number of bytes to read
+                    WriteDataLocal  <= WriteData;   // Assign WriteData to locally-used signal, safety precaution
+                    ReadOutput[0]   <= 8'd0;        // Clear ReadOutputs
                     ReadOutput[1]   <= 8'd0;
                     ReadOutput[2]   <= 8'd0;
                     ReadOutput[3]   <= 8'd0;
@@ -131,6 +134,7 @@ module I2CInterface(
                 end
             end
 
+            // Master Tx START
             STATE_START : begin
                 case (LowerState)
                     8'd0 : begin SCL <= 1'b1; SDA <= 1'b0; LowerState <= LowerState + 1'b1; end
@@ -143,6 +147,7 @@ module I2CInterface(
                 endcase
             end
 
+            // Master Tx STOP
             STATE_STOP : begin
                 case (LowerState)
                     8'd0 : begin SCL <= 1'b1; SDA <= 1'b1; LowerState <= LowerState + 1'b1; end
@@ -155,10 +160,13 @@ module I2CInterface(
                 endcase
             end
 
+            // General Acknowledge, Master Rx and Tx possible
             STATE_ACK : STATE_ACK: begin
                 case (LowerState)
                     8'd0 : begin SCL <= 1'b0;
+                        // If predecessor of STATE_ACK was a STATE_READ
                         if (ReadAck == 1'b1) begin
+                            // Was predecessor STATE_READ last read
                             if (ReadDone == 1'b1) begin
                                 ReadDone   <= 1'b0;
                                 ReadAck    <= 1'b0;
@@ -171,18 +179,24 @@ module I2CInterface(
                                 LowerState <= 8'd6;
                             end;
                         end
+
+                        // If Predecessor of STATE_ACK was a STATE_WRITE
                         else if (WriteDone == 1'b1) begin
                             SDA        <= 1'bz;
                             WriteDone  <= 1'b0;
                             LowerState <= 8'd9;
                         end
+
+                        // If Predecessor of STATE_ACK was a STATE_SAD
                         else if (SlaveAddressDone == 1'b1) begin
                             SDA              <= 1'bz;
                             SlaveAddressDone <= 1'b0;
+                            // Have we already sent Subaddress (Previous STATE_SAD was reSTART before READ)
                             if (SubAddressDone == 1'b1) LowerState <= 8'd14;
                             else LowerState <= 8'd17;
                         end
 
+                        // If Predecessor of STATE_ACK was a STATE_SUB
                         else if (SubAddressDone == 1'b1) begin
                             SDA <= 1'bz;
                             if (ReadWrite == 1'b1) LowerState <= 8'd20;
@@ -224,6 +238,7 @@ module I2CInterface(
                 endcase
             end
 
+            // Master Tx Slave Address
             STATE_SAD : begin
                 case (LowerState)
                     8'd0  : begin SCL <= 1'b0; SDA <= SlaveAddress[6]; LowerState <= LowerState + 1'b1; end
@@ -255,6 +270,7 @@ module I2CInterface(
                     8'd26 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd27 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
                     8'd28 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1;
+                        // Have we already sent Subaddress (We are at reSTART before READ)
                         if (SubAddressDone == 1'b1) SDA <= 1'b1;
                         else SDA <= 1'b0;
                     end
@@ -265,9 +281,11 @@ module I2CInterface(
                 endcase
             end
 
+            // Master Tx Subaddress
             STATE_SUB : begin
                 case (LowerState)
                     8'd0  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1;
+                        // LSM303DLHC-specific behavior, 1 indicates multi-byte read
                         if (BytesToRead == 8'd1) SDA <= 1'b0;
                         else SDA <= 1'b1;
                     end
@@ -306,6 +324,7 @@ module I2CInterface(
                 endcase
             end
 
+            // Master Rx ReadData
             STATE_READ : begin
                 case (LowerState)
                     8'd0  : begin SCL <= 1'b0; SDA <= 1'bz; LowerState <= LowerState + 1'b1; end
@@ -340,12 +359,14 @@ module I2CInterface(
                     8'd29 : begin SCL <= 1'b1; LowerState <= State + 1'b1; end
                     8'd30 : begin SCL <= 1'b1; ReadOutput[ReadByteCounter - 1][0] <= SDA; LowerState <= LowerState + 1'b1; ReadByteCounter <= ReadByteCounter - 1; end
                     8'd31 : begin SCL <= 1'b0; LowerState <= 8'd0; ReadAck <= 1'b1; UpperState <= STATE_ACK;
+                        // Was previously read byte last byte of transaction
                         if (ReadByteCounter == 8'd0) ReadDone <= 1'b1;
                     end
                     default: error_bit = 1'b0;
                 endcase
             end;
 
+            // Master Tx WriteData
             STATE_WRITE : begin
                 case (LowerState)
                     8'd0  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
