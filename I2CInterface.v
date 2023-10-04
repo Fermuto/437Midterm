@@ -215,7 +215,7 @@ module I2CInterface(
                     8'd18 : begin SCL <= 1'b1; ACK_bit <= SDA; LowerState <= LowerState + 1; end
                     8'd19 : begin SCL <= 1'b0; LowerState <= 8'd0; UpperState <= STATE_SUB; end
                     // SACK -> START
-                    8'd20  begin SCL <= 1'b1; LowerState <= LowerState + 1; end
+                    8'd20 : begin SCL <= 1'b1; LowerState <= LowerState + 1; end
                     8'd21 : begin SCL <= 1'b1; ACK_bit <= SDA; LowerState <= LowerState + 1; end
                     8'd22 : begin SCL <= 1'b0; LowerState <= LowerState + 1; end
                     8'd23 : begin SCL <= 1'b0; SDA <= 1'b1; LowerState <= LowerState + 1; end
@@ -255,9 +255,7 @@ module I2CInterface(
                     8'd26 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd27 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
                     8'd28 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1;
-                        if (SubAddressDone == 1'b1) begin
-                            SDA <= 1'b1;
-                        end
+                        if (SubAddressDone == 1'b1) SDA <= 1'b1;
                         else SDA <= 1'b0;
                     end
                     8'd29 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
@@ -310,7 +308,7 @@ module I2CInterface(
 
             STATE_READ : begin
                 case (LowerState)
-                    8'd0  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
+                    8'd0  : begin SCL <= 1'b0; SDA <= 1'bz; LowerState <= LowerState + 1'b1; end
                     8'd1  : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd2  : begin SCL <= 1'b1; ReadOutput[ReadByteCounter - 1][7] <= SDA; LowerState <= LowerState + 1'b1; end
                     8'd3  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
