@@ -1,3 +1,15 @@
+`timescale 1ns / 1ps
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+// Description:
+//      Genercised I2C Interface, for sensors. Relies on OpalKelly IP.
+//      Supports 1-4 byte consecutive read, 1 byte write,
+//      Multi-byte write is more efficiently done PC-side.
+// Dependencies:
+//      ClockGenerator.v
+// Revision:
+//      r0.0.0.4
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+
 module I2CInterface(
     output wire [7:0]  led,
     input  wire        sys_clkn,
@@ -21,7 +33,7 @@ module I2CInterface(
     output wire [31:0] Telemetry
     );
 
-    // ****************************************************************************************************
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////
     // Instantiate the ClockGenerator module, where three signals are generate:
     // High speed CLK signal, Low speed FSM_Clk signal
     wire [23:0] ClkDivThreshold = 100;
@@ -32,7 +44,7 @@ module I2CInterface(
                                       .FSM_Clk(FSM_Clk),
                                       .ILA_Clk(ILA_Clk) );
 
-    // ****************************************************************************************************
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////
     // Define Upper States
     localparam STATE_INIT  = 8'd0;
     localparam STATE_START = 8'd1;
@@ -43,7 +55,7 @@ module I2CInterface(
     localparam STATE_READ  = 8'd6;
     localparam STATE_WRITE = 8'd7;
 
-    // ****************************************************************************************************
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////
     // Flag Declarations
     wire SubAddressDone;
     wire SlaveAddressDone;
@@ -80,7 +92,7 @@ module I2CInterface(
         LowerState       = 8'b0;
     end
 
-    // ****************************************************************************************************
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////
     // I/O Assignments
     assign led[7]    = ACK_bit;
     assign led[6]    = error_bit;
@@ -105,7 +117,7 @@ module I2CInterface(
                         ReadByteCounter,
                         WriteDataLocal};
 
-    // ****************************************************************************************************
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////
     // Interface FSM
     always @(posedge FSM_Clk) begin
         case (UpperState)
