@@ -7,7 +7,7 @@
 // Dependencies:
 //      ClockGenerator.v
 // Revision:
-//      r0.0.0.4
+//      r0.0.0.5
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
 module I2CInterface(
@@ -57,17 +57,17 @@ module I2CInterface(
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////
     // Flag Declarations
-    wire SubAddressDone;
-    wire SlaveAddressDone;
-    wire ReadAck;
-    wire ReadDone;
-    wire WriteDone;
+    reg SubAddressDone;
+    reg SlaveAddressDone;
+    reg ReadAck;
+    reg ReadDone;
+    reg WriteDone;
 
     // Read State Declarations
-    wire [7:0] ReadByteCounter;
-    wire [7:0] ReadOutput [0:3];
+    reg [7:0] ReadByteCounter;
+    reg [7:0] ReadOutput [0:3];
     // Write State Declarations
-    wire [7:0] WriteDataLocal;
+    reg [7:0] WriteDataLocal;
 
     // Initialize some IO, States, Flags
     reg error_bit = 1'b1;
@@ -163,7 +163,7 @@ module I2CInterface(
             STATE_STOP : begin
                 case (LowerState)
                     8'd0 : begin SCL <= 1'b1; SDA <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd1 : begin SCL <= 1'b0; SDA <= 1'b1; LowerState <= LowerState + 1'b1; end
+                    8'd1 : begin SCL <= 1'b1; SDA <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd2 : begin
                         LowerState <= 8'd0;
                         UpperState <= STATE_INIT;
@@ -173,9 +173,10 @@ module I2CInterface(
             end
 
             // General Acknowledge, Master Rx and Tx possible
-            STATE_ACK : STATE_ACK: begin
+            STATE_ACK: begin
                 case (LowerState)
-                    8'd0 : begin SCL <= 1'b0;
+                    8'd0 : begin 
+                        SCL <= 1'b0;
                         // If predecessor of STATE_ACK was a STATE_READ
                         if (ReadAck == 1'b1) begin
                             // Was predecessor STATE_READ last read
@@ -189,7 +190,7 @@ module I2CInterface(
                                 ReadAck    <= 1'b0;
                                 SDA        <= 1'b0;
                                 LowerState <= 8'd6;
-                            end;
+                            end
                         end
 
                         // If Predecessor of STATE_ACK was a STATE_WRITE
@@ -212,7 +213,7 @@ module I2CInterface(
                         else if (SubAddressDone == 1'b1) begin
                             SDA <= 1'bz;
                             if (ReadWrite == 1'b1) LowerState <= 8'd20;
-                            else error_bit = 1'b0;
+                            else LowerState <= 8'd25;
                         end
 
                     end
@@ -246,7 +247,11 @@ module I2CInterface(
                     8'd22 : begin SCL <= 1'b0; LowerState <= LowerState + 1; end
                     8'd23 : begin SCL <= 1'b0; SDA <= 1'b1; LowerState <= LowerState + 1; end
                     8'd24 : begin SCL <= 1'b1; LowerState <= 8'd0; UpperState <= STATE_START; end
-                    default: error_bit = 1'b0
+                    // SACK -> WRITE
+                    8'd25 : begin SCL <= 1'b1; LowerState <= LowerState + 1; end
+                    8'd26 : begin SCL <= 1'b1; ACK_bit <= SDA; LowerState <= LowerState + 1; end
+                    8'd27 : begin SCL <= 1'b0; LowerState <= 8'd0; UpperState <= STATE_WRITE; end
+                    default: error_bit = 1'b0;
                 endcase
             end
 
@@ -287,8 +292,8 @@ module I2CInterface(
                         else SDA <= 1'b0;
                     end
                     8'd29 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd30 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd31 : begin SCL <= 1'b0; LowerState <= 8'b0; UpperState <= STATE_ACK; SlaveAddressDone <= 1'b1; end
+                    8'd30 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; SlaveAddressDone <= 1'b1; end
+                    8'd31 : begin SCL <= 1'b0; LowerState <= 8'b0; UpperState <= STATE_ACK; end
                     default: error_bit = 1'b0;
                 endcase
             end
@@ -298,7 +303,7 @@ module I2CInterface(
                 case (LowerState)
                     8'd0  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1;
                         // LSM303DLHC-specific behavior, 1 indicates multi-byte read
-                        if (BytesToRead == 8'd1) SDA <= 1'b0;
+                        if ((BytesToRead == 8'd1 && ReadWrite == 1'b1) || ReadWrite == 1'b0) SDA <= 1'b0;
                         else SDA <= 1'b1;
                     end
                     8'd1  : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
@@ -330,8 +335,8 @@ module I2CInterface(
                     8'd27 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
                     8'd28 : begin SCL <= 1'b0; SDA <= SubAddress[0]; LowerState <= LowerState + 1'b1; end
                     8'd29 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd30 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd31 : begin SCL <= 1'b0; LowerState <= 8'b0; UpperState <= STATE_ACK; SubAddressDone <= 1'b1; end
+                    8'd30 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; SubAddressDone <= 1'b1; end
+                    8'd31 : begin SCL <= 1'b0; LowerState <= 8'b0; UpperState <= STATE_ACK; end
                     default: error_bit = 1'b0;
                 endcase
             end
@@ -368,51 +373,52 @@ module I2CInterface(
                     8'd26 : begin SCL <= 1'b1; ReadOutput[ReadByteCounter - 1][1] <= SDA; LowerState <= LowerState + 1'b1; end
                     8'd27 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
                     8'd28 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd29 : begin SCL <= 1'b1; LowerState <= State + 1'b1; end
-                    8'd30 : begin SCL <= 1'b1; ReadOutput[ReadByteCounter - 1][0] <= SDA; LowerState <= LowerState + 1'b1; ReadByteCounter <= ReadByteCounter - 1; end
-                    8'd31 : begin SCL <= 1'b0; LowerState <= 8'd0; ReadAck <= 1'b1; UpperState <= STATE_ACK;
+                    8'd29 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
+                    8'd30 : begin SCL <= 1'b1; ReadOutput[ReadByteCounter - 1][0] <= SDA; LowerState <= LowerState + 1'b1; ReadByteCounter <= ReadByteCounter - 1; 
+                        ReadAck <= 1'b1;
                         // Was previously read byte last byte of transaction
-                        if (ReadByteCounter == 8'd0) ReadDone <= 1'b1;
+                        if ((ReadByteCounter - 1) == 8'd0) ReadDone <= 1'b1; 
                     end
+                    8'd31 : begin SCL <= 1'b0; LowerState <= 8'd0; UpperState <= STATE_ACK; end
                     default: error_bit = 1'b0;
                 endcase
-            end;
+            end
 
             // Master Tx WriteData
             STATE_WRITE : begin
                 case (LowerState)
-                    8'd0  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
+                    8'd0  : begin SCL <= 1'b0; SDA <= WriteData[7]; LowerState <= LowerState + 1'b1; end
                     8'd1  : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd2  : begin SCL <= 1'b1; SDA <= WriteData[7]; LowerState <= LowerState + 1'b1; end
+                    8'd2  : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd3  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd4  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
+                    8'd4  : begin SCL <= 1'b0; SDA <= WriteData[6]; LowerState <= LowerState + 1'b1; end
                     8'd5  : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd6  : begin SCL <= 1'b1; SDA <= WriteData[6]; LowerState <= LowerState + 1'b1; end
+                    8'd6  : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd7  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd8  : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
+                    8'd8  : begin SCL <= 1'b0; SDA <= WriteData[5]; LowerState <= LowerState + 1'b1; end
                     8'd9  : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd10 : begin SCL <= 1'b1; SDA <= WriteData[5]; LowerState <= LowerState + 1'b1; end
+                    8'd10 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd11 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd12 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
+                    8'd12 : begin SCL <= 1'b0; SDA <= WriteData[4]; LowerState <= LowerState + 1'b1; end
                     8'd13 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd14 : begin SCL <= 1'b1; SDA <= WriteData[4]; LowerState <= LowerState + 1'b1; end
+                    8'd14 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd15 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd16 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
+                    8'd16 : begin SCL <= 1'b0; SDA <= WriteData[3]; LowerState <= LowerState + 1'b1; end
                     8'd17 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd18 : begin SCL <= 1'b1; SDA <= WriteData[3]; LowerState <= LowerState + 1'b1; end
+                    8'd18 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd19 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd20 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
+                    8'd20 : begin SCL <= 1'b0; SDA <= WriteData[2]; LowerState <= LowerState + 1'b1; end
                     8'd21 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd22 : begin SCL <= 1'b1; SDA <= WriteData[2]; LowerState <= LowerState + 1'b1; end
+                    8'd22 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd23 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd24 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
+                    8'd24 : begin SCL <= 1'b0; SDA <= WriteData[1]; LowerState <= LowerState + 1'b1; end
                     8'd25 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
-                    8'd26 : begin SCL <= 1'b1; SDA <= WriteData[1]; LowerState <= LowerState + 1'b1; end
+                    8'd26 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
                     8'd27 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd28 : begin SCL <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd29 : begin SCL <= 1'b1; LowerState <= State + 1'b1; end
-                    8'd30 : begin SCL <= 1'b1; SDA <= WriteData[0]; LowerState <= LowerState + 1'b1; end
-                    8'd31 : begin SCL <= 1'b0; LowerState <= 8'd0; WriteDone <= 1'b0; UpperState <= STATE_ACK; end
+                    8'd28 : begin SCL <= 1'b0; SDA <= WriteData[0]; LowerState <= LowerState + 1'b1; end
+                    8'd29 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; end
+                    8'd30 : begin SCL <= 1'b1; LowerState <= LowerState + 1'b1; WriteDone <= 1'b1; end
+                    8'd31 : begin SCL <= 1'b0; LowerState <= 8'd0; UpperState <= STATE_ACK; end
                     default: error_bit = 1'b0;
                 endcase
             end
