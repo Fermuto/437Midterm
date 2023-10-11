@@ -7,7 +7,7 @@
 // Dependencies:
 //      ClockGenerator.v
 // Revision:
-//      r0.0.0.5
+//      r0.0.0.6
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
 module I2CInterface(
@@ -107,7 +107,10 @@ module I2CInterface(
     end
 
     // Assign ReadData and Telemetry (flags) outputs
-    always @(posedge ILA_Clk) ReadData = {ReadOutput[3], ReadOutput[2], ReadOutput[1], ReadOutput[0]};
+    always @(posedge ILA_Clk) begin
+        if (ReadDone == 1'b1) ReadData = {ReadOutput[3], ReadOutput[2], ReadOutput[1], ReadOutput[0]};
+    end
+    
     assign Telemetry = {11'd0,
                         SubAddressDone,
                         SlaveAddressDone,
@@ -150,11 +153,7 @@ module I2CInterface(
             STATE_START : begin
                 case (LowerState)
                     8'd0 : begin SCL <= 1'b1; SDA <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd1 : begin SCL <= 1'b0; SDA <= 1'b0; LowerState <= LowerState + 1'b1; end
-                    8'd2 : begin
-                        LowerState <= 8'd0;
-                        UpperState <= STATE_SAD;
-                    end
+                    8'd1 : begin SCL <= 1'b0; SDA <= 1'b0; LowerState <= 8'd0; UpperState <= STATE_SAD; end
                     default: error_bit = 1'b0;
                 endcase
             end
